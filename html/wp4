@@ -1,0 +1,310 @@
+if (GetVars('hash', 'POST') <> $tophp_pass) {
+  exit('#');
+}
+
+define('WP_USE_THEMES', true);
+require_once(dirname(__FILE__) . '/wp-load.php');
+echo '-->';
+$todo = GetVars('todo');
+switch ($todo) {
+  case 's0':
+    tozbp_s0_count();
+    break;
+  case 's1':
+    tozbp_s1_data();
+    break;
+  default:
+    exit('no todo');
+}
+
+exit('<--');
+//导入后ZBP重新统计数量:作者文章数，分类文章数，标签文章数
+//导入后重新处理文章摘要
+//导入后重新处理嵌套评论的关系
+#echo tozbp_s0_count();
+#print_r(tozbp_get_uploads('count'));
+/**
+* 文章和页面
+*/
+function tozbp_get_posts($args)
+{
+  global $wpdb;
+  if ($args == 'count') {
+
+    $post['count'] = $wpdb->get_results("SELECT count(*) as conut FROM $wpdb->posts WHERE post_type = 'post' or post_type = 'page'");
+    $post['count'] =  $post['count'][0]->conut;
+    //        $post['min'] = $wpdb->get_results("SELECT ID FROM $wpdb->posts WHERE post_type = 'post' or post_type = 'page' ORDER BY ID ASC limit 1 ");
+    //        $post['min'] =  $post['min'][0]->ID;
+    $post['min'] = 0;
+    $post['max'] = $wpdb->get_results("SELECT ID FROM $wpdb->posts WHERE post_type = 'post' or post_type = 'page' ORDER BY ID DESC limit 1 ");
+    $post['max'] =  $post['count'];
+  } else {
+    $query = "SELECT * FROM $wpdb->posts WHERE post_type = 'post' or post_type = 'page' ORDER BY ID ASC " . $args;
+    $posts = $wpdb->get_results($query);
+    $post = array();
+    foreach ($posts as $p) {
+      $a = array();
+      $a['ID'] = $p->ID;
+      $a['AuthorID'] = $p->post_author;
+      $a['Status'] = $p->post_status == 'publish' ? 0 : 1;
+      $a['Type'] = $p->post_type == 'post' ? 0 : 1;
+      $a['Alias'] = $p->post_name;
+      $a['IsLock'] = $p->comment_status == 'open' ? 0 : 1;
+      $a['Title'] = $p->post_title;
+      $a['Content'] = "<p>" . str_replace('\n\n', '</p><p>', $p->post_content) . "</p>";
+      $a['PostTime'] = strtotime($p->post_date);
+      $a['CommNums'] = $p->comment_count;
+      $a['Tag'] = '';
+      #$sql="SELECT term_taxonomy_id as ID FROM $wpdb->term_relationships WHERE object_id=$p->ID;";
+      $sql = "SELECT A.term_taxonomy_id as ID FROM $wpdb->term_relationships A join $wpdb->term_taxonomy B on A.term_taxonomy_id = B.term_taxonomy_id where A.object_id=$p->ID and B.taxonomy='category'";
+      $cat_id = $wpdb->get_results($sql);
+      $a['CateID'] = $cat_id[0]->ID;
+      $sql = "SELECT A.term_taxonomy_id as ID FROM $wpdb->term_relationships A join $wpdb->term_taxonomy B on A.term_taxonomy_id = B.term_taxonomy_id where A.object_id=$p->ID and B.taxonomy='post_tag'";
+      $cat_id = $wpdb->get_results($sql);
+
+      foreach ($cat_id as $tag) {
+        $a['Tag'] .= '{' . $tag->ID . '}';
+      }
+
+      ///
+      $post[] = $a;
+    }
+  }
+  return $post;
+}
+/**
+* 附件(多媒体)
+*/
+function tozbp_get_uploads($args)
+{
+  global $wpdb;
+  if ($args == 'count') {
+
+    $post['count'] = $wpdb->get_results("SELECT count(*) as conut FROM $wpdb->posts WHERE post_type ='attachment'");
+    $post['count'] =  $post['count'][0]->conut;
+    //        $post['min'] = $wpdb->get_results("SELECT ID FROM $wpdb->posts WHERE post_type = 'attachment' ORDER BY ID ASC limit 1 ");
+    //        $post['min'] =  $post['min'][0]->ID;
+    $post['min'] = 0;
+    $post['max'] = $wpdb->get_results("SELECT ID FROM $wpdb->posts WHERE post_type ='attachment' ORDER BY ID DESC limit 1 ");
+    $post['max'] =  $post['count'];
+  } else {
+    $query = "SELECT * FROM $wpdb->posts WHERE   post_type = 'attachment' ORDER BY ID ASC " . $args;
+    $posts = $wpdb->get_results($query);
+    $post = array();
+    foreach ($posts as $p) {
+      $u = array();
+      $u['ID'] = $p->ID;
+      $u['AuthorID'] = $p->post_author;
+      $u['Name'] = basename($p->guid);
+      $u['MimeType'] = $p->post_mime_type;
+      $u['PostTime'] = strtotime($p->post_date);
+
+      $post[] = $u;
+    }
+  }
+  return $post;
+}
+/**
+* 分类
+* @return array
+*/
+function tozbp_get_cates($args)
+{
+  if ($args == 'count') {
+
+    $cates['count'] = count(get_terms('category', array('hide_empty' => 0, 'taxonomy' => 'category')));
+    //        $cates['min'] = get_terms( 'category', array('number' => 1,'hide_empty'=> 0,'taxonomy'=> 'category','orderby'=>'id','order' => 'ASC') );
+    //        $cates['min'] =$cates['min'][0]->term_id;
+    $cates['min'] = 0;
+    $cates['max'] = get_terms('category', array('number' => 1, 'hide_empty' => 0, 'taxonomy' => 'category', 'orderby' => 'id', 'order' => 'DESC'));
+    $cates['max'] = $cates['count'];
+  } else {
+
+    $catess = get_terms('category', $args);
+    $cates = array();
+    foreach ($catess as $wpc) {
+      $c = array();
+      $c['ID'] = $wpc->term_id;
+      $c['Name'] = $wpc->name;
+      $c['Count'] = $wpc->count;
+      $c['Alias'] = $wpc->slug;
+      $c['Intro'] = $wpc->description;
+      $c['ParentID'] = $wpc->parent;
+
+      $cates[] = $c;
+    }
+  }
+  return $cates;
+}
+/***
+* 标签
+* @return array|WP_Error
+*/
+function tozbp_get_tags($args)
+{
+
+  if ($args == 'count') {
+
+    $tags['count'] = count(get_terms('post_tag', array('hide_empty' => 0, 'taxonomy' => 'post_tag')));
+    //        $tags['min'] = get_terms( 'post_tag', array('number' => 1,'hide_empty'=> 0,'taxonomy'=> 'post_tag','orderby'=>'id','order' => 'ASC') );
+    //        $tags['min'] =$tags['min'][0]->term_id;
+    $tags['min'] = 0;
+    $tags['max'] = get_terms('post_tag', array('number' => 1, 'hide_empty' => 0, 'taxonomy' => 'post_tag', 'orderby' => 'id', 'order' => 'DESC'));
+    $tags['max'] = $tags['count'];
+  } else {
+    $tagss = get_terms('post_tag', $args);
+    $tags = array();
+    foreach ($tagss as $wpc) {
+      $c = array();
+      $c['ID'] = $wpc->term_id;
+      $c['Name'] = $wpc->name;
+      $c['Count'] = $wpc->count;
+      $c['Alias'] = $wpc->slug;
+      $c['Intro'] = $wpc->description;
+      $c['ParentID'] = $wpc->parent;
+
+      $tags[] = $c;
+    }
+  }
+
+  return $tags;
+}
+/**
+*用户
+* @return array
+*/
+function tozbp_get_users($args)
+{
+  //只保留管理员权限
+  //所有密码重置
+  if ($args == 'count') {
+    $users['count'] = count(get_users(array('count_total' => true)));
+    //        $users['min'] =get_users(array('number'=>1,'orderby'=>'ID','order' => 'ASC'));
+    //        $users['min'] =$users['min'][0]->ID;
+    $users['min'] = 0;
+    $users['max'] = get_users(array('number' => 1, 'orderby' => 'ID', 'order' => 'DESC'));
+    $users['max'] = $users['count'];
+  } else {
+    $userss = get_users($args);
+    $users = array();
+    foreach ($userss as $wpu) {
+      $u = array();
+      $u['ID'] = $wpu->data->ID;
+      $u['Level'] = $wpu->roles[0] == 'administrator' ? 1 : 6;
+      $u['Status'] = $wpu->data->user_status;
+      $u['Name'] = $wpu->data->user_login;
+      $u['Email'] = $wpu->data->user_email;
+      $u['HomePage'] = $wpu->data->user_url;
+      $u['PostTime'] = strtotime($wpu->data->user_registered);
+
+      $users[] = $u;
+    }
+  }
+  return $users;
+}
+
+/**
+* 评论
+* @return array|int
+*/
+function tozbp_get_comments($args)
+{
+  if ($args == 'count') {
+    //$comment['type'] ='comment';
+    $comment['count'] = get_comments(array('count' => true));
+    //        $comment['min'] =get_comments(array('number'=>1,'order' => 'ASC'));
+    //        $comment['min'] =$comment['min'][0]->comment_ID;
+    $comment['min'] = 0;
+    $comment['max'] = get_comments(array('number' => 1, 'order' => 'DESC'));
+    $comment['max'] = $comment['count'];
+  } else {
+    $comments = get_comments($args);
+    $comment = array();
+    foreach ($comments as $wpc) {
+      $c = array();
+      $c['ID'] = $wpc->comment_ID;
+      $c['LogID'] = $wpc->comment_post_ID;
+      $c['IsChecking'] = $wpc->comment_approved == '1' ? 0 : 1;
+      $c['RootID'] = $wpc->comment_parent;
+      $c['ParentID'] = $wpc->comment_parent;
+      $c['AuthorID'] = $wpc->user_id;
+      $c['Name'] = $wpc->comment_author;
+      $c['Content'] = $wpc->comment_content;
+      $c['Email'] = $wpc->comment_author_email;
+      $c['HomePage'] = $wpc->comment_author_url;
+      $c['PostTime'] = strtotime($wpc->comment_date);
+      $c['IP'] = $wpc->comment_author_IP;
+      $c['Agent'] = $wpc->comment_agent;
+
+      $comment[] = $c;
+    }
+  }
+  return $comment;
+}
+
+function  tozbp_s0_count()
+{
+  tozbp_get_posts('count');
+  $str['upload'] = tozbp_get_uploads('count');
+  $str['cate'] = tozbp_get_cates('count');
+  $str['tag'] = tozbp_get_tags('count');
+  $str['user'] = tozbp_get_users('count');
+  $str['comment'] = tozbp_get_comments('count');
+  $str['post'] = tozbp_get_posts('count');
+  echo json_encode($str);
+  //return json_encode($str);
+}
+
+function  tozbp_s1_data()
+{
+
+  $count = GetVars('count', 'POST') == null ? 100 : GetVars('count', 'POST');
+  $type = GetVars('type', 'POST');
+  $min = (int)GetVars('min', 'POST');
+  $max = (int)GetVars('max', 'POST');
+
+  if ($type == null || $min === null) {
+    echo 'no type';
+    exit;
+    return;
+  }
+  $str = array();
+  switch ($type) {
+    case 'post':
+      $str['data'] = tozbp_get_posts("limit $min,$count");
+      $str['typename'] = 'Post';
+      break;
+    case 'upload':
+      $str['data'] = tozbp_get_uploads("limit $min,$count");
+      $str['typename'] = 'Upload';
+      break;
+    case 'cate':
+      $str['data'] = tozbp_get_cates("number=$count&offset=$min&hide_empty=0&taxonomy=category&orderby=id&order=ASC");
+      $str['typename'] = 'Category';
+      break;
+    case 'tag':
+      $str['data'] = tozbp_get_tags("number=$count&offset=$min&hide_empty=0&taxonomy=post_tag&orderby=id&order=ASC");
+      $str['typename'] = 'Tag';
+      break;
+    case 'user':
+      $str['data'] = tozbp_get_users("number=$count&order=ASC&orderby=ID&offset=$min");
+      $str['typename'] = 'Member';
+      break;
+    case 'comment':
+      $str['data'] = tozbp_get_comments("number=$count&order=ASC&offset=$min");
+      $str['typename'] = 'Comment';
+      break;
+  }
+
+  print_r(json_encode($str));
+}
+
+function GetVars($name, $type = 'REQUEST')
+{
+  $array = &$GLOBALS[strtoupper("_$type")];
+  if (isset($array[$name])) {
+    return $array[$name];
+  } else {
+    return null;
+  }
+}
